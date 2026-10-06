@@ -16,9 +16,7 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-
+      
       - uses: gradle/actions/setup-gradle@v3
 
       - name: 서명키 준비
