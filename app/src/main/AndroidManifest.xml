@@ -78,17 +78,26 @@
             android:foregroundServiceType="specialUse" />
 
         <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation"
+            android:name=".SearchActivity"
             android:exported="true"
+            android:label="영상 찾아받기"
             android:launchMode="singleTask"
-            android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Seal">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.Seal">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
 
