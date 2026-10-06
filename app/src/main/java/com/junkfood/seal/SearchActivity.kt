@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -123,7 +124,7 @@ private suspend fun searchYoutube(query: String): List<SearchItem> = withContext
                     )
                 )
             }
-            return@withContext list
+            return@withContext list.distinctBy { it.id }
         } catch (t: Throwable) {
             lastError = t
             delay(1500)
