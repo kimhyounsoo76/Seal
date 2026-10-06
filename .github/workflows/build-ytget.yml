@@ -16,7 +16,6 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      
       - uses: gradle/actions/setup-gradle@v3
 
       - name: 서명키 준비
@@ -32,12 +31,13 @@ jobs:
       - name: 빌드
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          echo "org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> gradle.properties
+          ./gradlew assembleGenericRelease --no-parallel --stacktrace
 
       - name: APK 올리기
         uses: actions/upload-artifact@v4
         with:
           name: ytget-apk
-          path: app/build/outputs/apk/release/*arm64-v8a*.apk
+          path: app/build/outputs/apk/**/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 30
