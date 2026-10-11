@@ -28,6 +28,18 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.junkfood.seal.util.AUTO_SUBTITLE
+import com.junkfood.seal.util.CONVERT_SRT
+import com.junkfood.seal.util.CONVERT_SUBTITLE
+import com.junkfood.seal.util.EMBED_SUBTITLE
+import com.junkfood.seal.util.EXTRACT_AUDIO
+import com.junkfood.seal.util.PreferenceUtil.getBoolean
+import com.junkfood.seal.util.PreferenceUtil.getString
+import com.junkfood.seal.util.PreferenceUtil.updateBoolean
+import com.junkfood.seal.util.PreferenceUtil.updateInt
+import com.junkfood.seal.util.PreferenceUtil.updateString
+import com.junkfood.seal.util.SUBTITLE
+import com.junkfood.seal.util.SUBTITLE_LANGUAGE
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
@@ -209,6 +221,8 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
             ) { Text("찾기") }
         }
 
+        QuickOptions()
+
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         }
@@ -293,5 +307,48 @@ private fun ResultCard(item: SearchItem, onClick: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             FilledTonalButton(onClick = onClick) { Text("받기") }
         }
+    }
+}
+
+
+/** 자주 바꾸는 설정을 검색 화면에 바로 꺼내 둔 줄 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickOptions() {
+    var audioOnly by remember { mutableStateOf(EXTRACT_AUDIO.getBoolean()) }
+    var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 900.dp)
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = audioOnly,
+            onClick = {
+                audioOnly = !audioOnly
+                EXTRACT_AUDIO.updateBoolean(audioOnly)
+            },
+            label = { Text(if (audioOnly) "🎵 소리만 받기" else "🎬 영상으로 받기") },
+        )
+        FilterChip(
+            selected = subtitle,
+            onClick = {
+                subtitle = !subtitle
+                SUBTITLE.updateBoolean(subtitle)
+                if (subtitle) {
+                    // 켤 때 쓰기 편한 값으로 함께 맞춤: 한국어·영어, 자동 자막 포함, SRT 파일, 영상과 따로 저장
+                    if (SUBTITLE_LANGUAGE.getString().isBlank()) SUBTITLE_LANGUAGE.updateString("ko,en")
+                    AUTO_SUBTITLE.updateBoolean(true)
+                    CONVERT_SUBTITLE.updateInt(CONVERT_SRT)
+                    EMBED_SUBTITLE.updateBoolean(false)
+                }
+            },
+            label = { Text(if (subtitle) "💬 자막도 받기" else "💬 자막 안 받기") },
+        )
     }
 }
