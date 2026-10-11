@@ -1,7 +1,16 @@
 package com.junkfood.seal
 
 import android.content.Intent
+import android.annotation.SuppressLint
 import android.os.Bundle
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -173,6 +182,14 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     var showSettings by remember { mutableStateOf(false) }
+    var previewItem by remember { mutableStateOf<SearchItem?>(null) }
+    previewItem?.let { item ->
+        PreviewDialog(
+            item = item,
+            onDismiss = { previewItem = null },
+            onDownload = { previewItem = null; onPick(item) },
+        )
+    }
     var optionsKey by remember { mutableStateOf(0) }
     if (showSettings) {
         SettingsSheet(
@@ -272,19 +289,19 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
         ) {
             items(results, key = { it.id }) { item ->
-                ResultCard(item, onClick = { onPick(item) })
+                ResultCard(item, onPreview = { previewItem = item }, onDownload = { onPick(item) })
             }
         }
     }
 }
 
 @Composable
-private fun ResultCard(item: SearchItem, onClick: () -> Unit) {
+private fun ResultCard(item: SearchItem, onPreview: () -> Unit, onDownload: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .clickable(onClick = onPreview)
             .padding(bottom = 6.dp)
     ) {
         Box {
@@ -332,7 +349,7 @@ private fun ResultCard(item: SearchItem, onClick: () -> Unit) {
                 }
             }
             Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onClick) { Text("받기") }
+            FilledTonalButton(onClick = onDownload) { Text("받기") }
         }
     }
 }
@@ -630,5 +647,72 @@ private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (
         }
         Spacer(Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+
+/** 결과를 누르면 받기 전에 영상을 먼저 보여 주는 창 */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: () -> Unit) {
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    val close = {
+        webView?.apply { loadUrl("about:blank"); destroy() }
+        webView = null
+        onDismiss()
+    }
+    Dialog(
+        onDismissRequest = close,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    TextButton(onClick = close) { Text("← 닫기") }
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+                    )
+                    Button(onClick = { webView?.apply { loadUrl("about:blank") }; onDownload() }) {
+                        Text("이 영상 받기")
+                    }
+                }
+                // 휴대폰 세로: 화면 폭에 맞춘 16:9 / 태블릿·가로: 남은 공간을 채움
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.mediaPlaybackRequiresUserGesture = false
+                            settings.userAgentString = settings.userAgentString.replace("; wv", "")
+                            webChromeClient = WebChromeClient()
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView,
+                                    request: WebResourceRequest,
+                                ): Boolean {
+                                    // 유튜브 앱으로 튀어 나가는 주소는 막고, 미리 보기 안에서만 본다
+                                    val scheme = request.url.scheme ?: return true
+                                    return scheme != "http" && scheme != "https"
+                                }
+                            }
+                            loadUrl("https://m.youtube.com/watch?v=${item.id}")
+                            webView = this
+                        }
+                    },
+                )
+            }
+        }
     }
 }
