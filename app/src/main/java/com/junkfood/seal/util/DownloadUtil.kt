@@ -839,6 +839,14 @@ object DownloadUtil {
                 }
 
             Log.d(TAG, "onFinishDownloading: $fileName")
+            if (downloadSubtitle && !sdcard) {
+                SubtitleText.processAfterDownload(
+                    downloadDir = downloadPath,
+                    videoId = videoInfo.id,
+                    title = fileName,
+                    startedAt = System.currentTimeMillis() - 6 * 60 * 60 * 1000L,
+                )
+            }
             if (sdcard) {
                 moveFilesToSdcard(
                         sdcardUri = sdcardUri,

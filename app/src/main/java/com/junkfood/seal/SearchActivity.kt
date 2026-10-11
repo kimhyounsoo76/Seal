@@ -44,6 +44,7 @@ import com.junkfood.seal.util.FORMAT_QUALITY
 import com.junkfood.seal.util.FORMAT_SELECTION
 import com.junkfood.seal.util.PreferenceUtil
 import com.junkfood.seal.util.PreferenceUtil.getInt
+import com.junkfood.seal.util.SubtitleText
 import com.junkfood.seal.util.UpdateUtil
 import com.junkfood.seal.util.USE_PREVIOUS_SELECTION
 import com.junkfood.seal.util.VIDEO_FORMAT
@@ -351,7 +352,7 @@ private fun setSubtitle(on: Boolean) {
     SUBTITLE.updateBoolean(on)
     if (on) {
         // 켤 때 쓰기 편한 값으로 함께 맞춤: 한국어·영어, 자동 자막 포함, SRT 파일, 영상과 따로 저장
-        if (SUBTITLE_LANGUAGE.getString().isBlank()) SUBTITLE_LANGUAGE.updateString("ko,en")
+        if (SUBTITLE_LANGUAGE.getString().isBlank()) SUBTITLE_LANGUAGE.updateString("ko")
         AUTO_SUBTITLE.updateBoolean(true)
         CONVERT_SUBTITLE.updateInt(CONVERT_SRT)
         EMBED_SUBTITLE.updateBoolean(false)
@@ -388,7 +389,7 @@ private fun QuickOptions() {
 }
 
 /** 흩어진 설정 중 실제로 자주 쓰는 것만 한 화면에 모은 시트 */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -399,7 +400,7 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
     var mp4 by remember { mutableStateOf(VIDEO_FORMAT.getInt() == FORMAT_COMPATIBILITY) }
     var mp3 by remember { mutableStateOf(AUDIO_CONVERT.getBoolean() && AUDIO_CONVERSION_FORMAT.getInt() == CONVERT_MP3) }
     var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
-    var subLang by remember { mutableStateOf(SUBTITLE_LANGUAGE.getString().ifBlank { "ko,en" }) }
+    var subLang by remember { mutableStateOf(SUBTITLE_LANGUAGE.getString().ifBlank { "ko" }) }
     var askFormat by remember { mutableStateOf(FORMAT_SELECTION.getBoolean()) }
     var engineVersion by remember { mutableStateOf(YT_DLP_VERSION.getString()) }
     var engineMsg by remember { mutableStateOf("") }
@@ -464,21 +465,62 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
             SectionTitle("자막")
             SwitchRow(
                 title = "자막도 받기",
-                desc = "영상과 같은 폴더에 SRT 파일로 따로 저장돼요. 자동 자막도 포함해요",
+                desc = "영상과 같은 폴더에 따로 저장돼요. 자동 자막도 포함해요",
                 checked = subtitle,
                 onChange = { subtitle = it; setSubtitle(it) },
             )
             if (subtitle) {
-                OutlinedTextField(
-                    value = subLang,
-                    onValueChange = {
-                        subLang = it
-                        SUBTITLE_LANGUAGE.updateString(it.replace(" ", ""))
+                Text("자막 언어 (여러 개 고를 수 있어요)", style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+                val langs = listOf("ko" to "한국어", "en" to "영어", "ja" to "일본어", "zh-Hans" to "중국어")
+                var picked by remember {
+                    mutableStateOf(subLang.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    langs.forEach { (code, label) ->
+                        FilterChip(
+                            selected = code in picked,
+                            onClick = {
+                                val next = if (code in picked) picked - code else picked + code
+                                if (next.isNotEmpty()) {
+                                    picked = next
+                                    // 고른 순서와 관계없이 목록 순서대로 저장
+                                    val joined = langs.map { it.first }.filter { it in next }.joinToString(",")
+                                    subLang = joined
+                                    SUBTITLE_LANGUAGE.updateString(joined)
+                                }
+                            },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+
+                Text("자막 저장 방식", style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
+                var subOut by remember { mutableStateOf(SubtitleText.OUTPUT_KEY.getInt(SubtitleText.OUTPUT_TXT)) }
+                val outs = listOf(
+                    SubtitleText.OUTPUT_TXT to "읽기용 글(TXT)",
+                    SubtitleText.OUTPUT_SRT to "영상용 자막(SRT)",
+                    SubtitleText.OUTPUT_BOTH to "둘 다",
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    outs.forEach { (v, label) ->
+                        FilterChip(
+                            selected = subOut == v,
+                            onClick = { subOut = v; SubtitleText.OUTPUT_KEY.updateInt(v) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                Text(
+                    when (subOut) {
+                        SubtitleText.OUTPUT_TXT -> "겹친 줄을 없애고 말하는 사람이 바뀔 때마다 문단을 나눈 글 파일로 저장해요"
+                        SubtitleText.OUTPUT_BOTH -> "영상과 함께 볼 SRT와 읽기용 TXT를 같이 저장해요"
+                        else -> "영상 플레이어에서 화면에 띄우는 자막 파일이에요"
                     },
-                    label = { Text("자막 언어 (한국어 ko, 영어 en, 일본어 ja)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
