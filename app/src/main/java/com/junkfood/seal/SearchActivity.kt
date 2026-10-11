@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -33,6 +34,22 @@ import com.junkfood.seal.util.CONVERT_SRT
 import com.junkfood.seal.util.CONVERT_SUBTITLE
 import com.junkfood.seal.util.EMBED_SUBTITLE
 import com.junkfood.seal.util.EXTRACT_AUDIO
+import com.junkfood.seal.util.AUDIO_CONVERT
+import com.junkfood.seal.util.AUDIO_CONVERSION_FORMAT
+import com.junkfood.seal.util.CONVERT_MP3
+import com.junkfood.seal.util.DOWNLOAD_TYPE_INITIALIZATION
+import com.junkfood.seal.util.DownloadType
+import com.junkfood.seal.util.FORMAT_COMPATIBILITY
+import com.junkfood.seal.util.FORMAT_QUALITY
+import com.junkfood.seal.util.FORMAT_SELECTION
+import com.junkfood.seal.util.PreferenceUtil
+import com.junkfood.seal.util.PreferenceUtil.getInt
+import com.junkfood.seal.util.UpdateUtil
+import com.junkfood.seal.util.USE_PREVIOUS_SELECTION
+import com.junkfood.seal.util.VIDEO_FORMAT
+import com.junkfood.seal.util.VIDEO_QUALITY
+import com.junkfood.seal.util.YT_DLP_VERSION
+import com.yausername.youtubedl_android.YoutubeDL.UpdateStatus
 import com.junkfood.seal.util.PreferenceUtil.getBoolean
 import com.junkfood.seal.util.PreferenceUtil.getString
 import com.junkfood.seal.util.PreferenceUtil.updateBoolean
@@ -154,6 +171,14 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
     var message by remember { mutableStateOf("검색어를 넣고 찾기를 누르세요.\n결과를 누르면 바로 받을 수 있어요.") }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
+    var showSettings by remember { mutableStateOf(false) }
+    var optionsKey by remember { mutableStateOf(0) }
+    if (showSettings) {
+        SettingsSheet(
+            onDismiss = { showSettings = false; optionsKey++ },
+            onOpenAll = { showSettings = false; onOpenSeal() },
+        )
+    }
 
     fun doSearch() {
         val q = query.trim()
@@ -192,7 +217,8 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onOpenSeal) { Text("받은 목록·설정") }
+            TextButton(onClick = { showSettings = true }) { Text("⚙ 설정") }
+            TextButton(onClick = onOpenSeal) { Text("받은 목록") }
         }
 
         Row(
@@ -221,7 +247,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
             ) { Text("찾기") }
         }
 
-        QuickOptions()
+        key(optionsKey) { QuickOptions() }
 
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
@@ -311,11 +337,32 @@ private fun ResultCard(item: SearchItem, onClick: () -> Unit) {
 }
 
 
-/** 자주 바꾸는 설정을 검색 화면에 바로 꺼내 둔 줄 */
+private fun isAudioMode(): Boolean =
+    PreferenceUtil.getDownloadType(usePreviousType = true) == DownloadType.Audio
+
+private fun setAudioMode(audio: Boolean) {
+    // 받기 창이 마지막 선택을 따르도록 맞추고, 그 선택을 소리/영상으로 저장
+    DOWNLOAD_TYPE_INITIALIZATION.updateInt(USE_PREVIOUS_SELECTION)
+    PreferenceUtil.updateDownloadType(if (audio) DownloadType.Audio else DownloadType.Video)
+    EXTRACT_AUDIO.updateBoolean(audio)
+}
+
+private fun setSubtitle(on: Boolean) {
+    SUBTITLE.updateBoolean(on)
+    if (on) {
+        // 켤 때 쓰기 편한 값으로 함께 맞춤: 한국어·영어, 자동 자막 포함, SRT 파일, 영상과 따로 저장
+        if (SUBTITLE_LANGUAGE.getString().isBlank()) SUBTITLE_LANGUAGE.updateString("ko,en")
+        AUTO_SUBTITLE.updateBoolean(true)
+        CONVERT_SUBTITLE.updateInt(CONVERT_SRT)
+        EMBED_SUBTITLE.updateBoolean(false)
+    }
+}
+
+/** 가장 자주 바꾸는 두 가지는 검색창 바로 아래에 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickOptions() {
-    var audioOnly by remember { mutableStateOf(EXTRACT_AUDIO.getBoolean()) }
+    var audioOnly by remember { mutableStateOf(isAudioMode()) }
     var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
 
     Row(
@@ -329,26 +376,217 @@ private fun QuickOptions() {
     ) {
         FilterChip(
             selected = audioOnly,
-            onClick = {
-                audioOnly = !audioOnly
-                EXTRACT_AUDIO.updateBoolean(audioOnly)
-            },
+            onClick = { audioOnly = !audioOnly; setAudioMode(audioOnly) },
             label = { Text(if (audioOnly) "🎵 소리만 받기" else "🎬 영상으로 받기") },
         )
         FilterChip(
             selected = subtitle,
-            onClick = {
-                subtitle = !subtitle
-                SUBTITLE.updateBoolean(subtitle)
-                if (subtitle) {
-                    // 켤 때 쓰기 편한 값으로 함께 맞춤: 한국어·영어, 자동 자막 포함, SRT 파일, 영상과 따로 저장
-                    if (SUBTITLE_LANGUAGE.getString().isBlank()) SUBTITLE_LANGUAGE.updateString("ko,en")
-                    AUTO_SUBTITLE.updateBoolean(true)
-                    CONVERT_SUBTITLE.updateInt(CONVERT_SRT)
-                    EMBED_SUBTITLE.updateBoolean(false)
-                }
-            },
+            onClick = { subtitle = !subtitle; setSubtitle(subtitle) },
             label = { Text(if (subtitle) "💬 자막도 받기" else "💬 자막 안 받기") },
         )
+    }
+}
+
+/** 흩어진 설정 중 실제로 자주 쓰는 것만 한 화면에 모은 시트 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    var audioOnly by remember { mutableStateOf(isAudioMode()) }
+    var quality by remember { mutableStateOf(VIDEO_QUALITY.getInt()) }
+    var mp4 by remember { mutableStateOf(VIDEO_FORMAT.getInt() == FORMAT_COMPATIBILITY) }
+    var mp3 by remember { mutableStateOf(AUDIO_CONVERT.getBoolean() && AUDIO_CONVERSION_FORMAT.getInt() == CONVERT_MP3) }
+    var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
+    var subLang by remember { mutableStateOf(SUBTITLE_LANGUAGE.getString().ifBlank { "ko,en" }) }
+    var askFormat by remember { mutableStateOf(FORMAT_SELECTION.getBoolean()) }
+    var engineVersion by remember { mutableStateOf(YT_DLP_VERSION.getString()) }
+    var engineMsg by remember { mutableStateOf("") }
+    var updating by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 720.dp)
+                .align(Alignment.CenterHorizontally)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text("설정", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "자주 바꾸는 것만 모았어요. 바꾸면 바로 저장돼요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            )
+
+            SectionTitle("받는 방법")
+            ChoiceRow(
+                options = listOf("🎬 영상", "🎵 소리만"),
+                selected = if (audioOnly) 1 else 0,
+                onSelect = { audioOnly = it == 1; setAudioMode(audioOnly) },
+            )
+
+            SectionTitle("영상 화질")
+            val qualities = listOf(0 to "가장 좋게", 3 to "1080p", 4 to "720p", 5 to "480p")
+            ChoiceRow(
+                options = qualities.map { it.second },
+                selected = qualities.indexOfFirst { it.first == quality }.coerceAtLeast(0),
+                onSelect = { quality = qualities[it].first; VIDEO_QUALITY.updateInt(quality) },
+            )
+            Text(
+                "낮출수록 용량이 작아져요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+
+            SwitchRow(
+                title = "어디서나 재생되는 MP4로 받기",
+                desc = "끄면 화질은 조금 좋아지지만 TV·PC에서 안 열릴 수 있어요",
+                checked = mp4,
+                onChange = { mp4 = it; VIDEO_FORMAT.updateInt(if (it) FORMAT_COMPATIBILITY else FORMAT_QUALITY) },
+            )
+            SwitchRow(
+                title = "소리는 MP3로 바꾸기",
+                desc = "끄면 M4A로 받아요. 대부분 기기에서 둘 다 재생돼요",
+                checked = mp3,
+                onChange = {
+                    mp3 = it
+                    AUDIO_CONVERT.updateBoolean(it)
+                    if (it) AUDIO_CONVERSION_FORMAT.updateInt(CONVERT_MP3)
+                },
+            )
+
+            SectionTitle("자막")
+            SwitchRow(
+                title = "자막도 받기",
+                desc = "영상과 같은 폴더에 SRT 파일로 따로 저장돼요. 자동 자막도 포함해요",
+                checked = subtitle,
+                onChange = { subtitle = it; setSubtitle(it) },
+            )
+            if (subtitle) {
+                OutlinedTextField(
+                    value = subLang,
+                    onValueChange = {
+                        subLang = it
+                        SUBTITLE_LANGUAGE.updateString(it.replace(" ", ""))
+                    },
+                    label = { Text("자막 언어 (한국어 ko, 영어 en, 일본어 ja)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+            }
+
+            SectionTitle("받을 때")
+            SwitchRow(
+                title = "받기 전에 형식 직접 고르기",
+                desc = "켜면 화질·파일 종류 목록이 매번 떠요",
+                checked = askFormat,
+                onChange = { askFormat = it; FORMAT_SELECTION.updateBoolean(it) },
+            )
+
+            SectionTitle("저장 위치")
+            Text(App.videoDownloadDir, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "소리만 받은 파일은 이 안의 Audio 폴더에 저장돼요. 위치를 바꾸려면 '모든 설정'에서 하세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+
+            SectionTitle("다운로드 엔진")
+            Text(
+                if (engineVersion.isBlank()) "버전 확인 전" else "지금 버전: $engineVersion",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "유튜브가 바뀌어 받기가 안 되면 여기서 업데이트하세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                FilledTonalButton(
+                    enabled = !updating,
+                    onClick = {
+                        updating = true
+                        engineMsg = "업데이트하는 중…"
+                        scope.launch {
+                            engineMsg = try {
+                                when (UpdateUtil.updateYtDlp()) {
+                                    UpdateStatus.DONE -> "최신으로 바꿨어요"
+                                    UpdateStatus.ALREADY_UP_TO_DATE -> "이미 최신이에요"
+                                    else -> "업데이트하지 못했어요"
+                                }
+                            } catch (t: Throwable) {
+                                "업데이트하지 못했어요. 인터넷을 확인하세요"
+                            }
+                            engineVersion = YT_DLP_VERSION.getString()
+                            updating = false
+                        }
+                    },
+                ) { Text("엔진 업데이트") }
+                if (engineMsg.isNotEmpty()) {
+                    Text(engineMsg, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+            OutlinedButton(onClick = onOpenAll, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("모든 설정·받은 목록 열기")
+            }
+            Text(
+                "로그인이 필요한 영상(쿠키), 저장 위치 바꾸기 같은 드문 설정은 여기서 하세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun ChoiceRow(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        options.forEachIndexed { i, label ->
+            FilterChip(
+                selected = i == selected,
+                onClick = { onSelect(i) },
+                label = { Text(label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onChange(!checked) }
+            .padding(vertical = 10.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
