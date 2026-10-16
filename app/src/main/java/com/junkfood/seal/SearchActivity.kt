@@ -96,6 +96,7 @@ class SearchActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     SearchScreen(
                         onPick = { item -> openDownload(item.url) },
+                        onUrl = { url -> openDownload(url) },
                         onOpenSeal = {
                             startActivity(Intent(this, MainActivity::class.java))
                         },
@@ -174,11 +175,13 @@ private suspend fun searchYoutube(query: String): List<SearchItem> = withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
+private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, onOpenSeal: () -> Unit) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val linkRegex = remember { Regex("""https?://\S+""") }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("검색어를 넣고 찾기를 누르세요.\n결과를 누르면 바로 받을 수 있어요.") }
+    var message by remember { mutableStateOf("낱말을 넣고 찾기를 누르세요. 결과를 누르면 미리 볼 수 있어요.\n영상 주소(링크)를 붙여넣고 받기를 누르면 바로 받아요.") }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     var showSettings by remember { mutableStateOf(false) }
@@ -201,6 +204,12 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
     fun doSearch() {
         val q = query.trim()
         if (q.isEmpty() || loading) return
+        // 주소(링크)를 넣었으면 검색하지 않고 바로 받기 창을 연다 (유튜브·인스타 릴스 등)
+        linkRegex.find(q)?.let { m ->
+            focus.clearFocus()
+            onUrl(m.value.trimEnd(')', ']', '>', '"', '\'', ',', '.'))
+            return
+        }
         focus.clearFocus()
         loading = true
         message = ""
@@ -251,7 +260,12 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
-                placeholder = { Text("유튜브에서 찾을 낱말") },
+                placeholder = { Text("찾을 낱말 또는 영상 주소") },
+                trailingIcon = {
+                    TextButton(onClick = {
+                        clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { query = it }
+                    }) { Text("붙여넣기") }
+                },
                 shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { doSearch() }),
@@ -262,7 +276,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onOpenSeal: () -> Unit) {
                 enabled = !loading,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.height(56.dp),
-            ) { Text("찾기") }
+            ) { Text(if (linkRegex.containsMatchIn(query)) "받기" else "찾기") }
         }
 
         key(optionsKey) { QuickOptions() }
