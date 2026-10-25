@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.junkfood.seal.util.AUTO_SUBTITLE
+import com.junkfood.seal.util.AUTO_TRANSLATED_SUBTITLES
 import com.junkfood.seal.util.CONVERT_SRT
 import com.junkfood.seal.util.CONVERT_SUBTITLE
 import com.junkfood.seal.util.EMBED_SUBTITLE
@@ -525,6 +526,14 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
                         )
                     }
                 }
+
+                var translated by remember { mutableStateOf(AUTO_TRANSLATED_SUBTITLES.getBoolean()) }
+                SwitchRow(
+                    title = "번역 자막도 받기",
+                    desc = "고른 언어 자막이 없으면 유튜브 자동 번역으로 받아요. 예: 영어 영상 + 한국어 선택 → 한국어 번역 자막",
+                    checked = translated,
+                    onChange = { translated = it; AUTO_TRANSLATED_SUBTITLES.updateBoolean(it) },
+                )
 
                 Text("자막 저장 방식", style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
