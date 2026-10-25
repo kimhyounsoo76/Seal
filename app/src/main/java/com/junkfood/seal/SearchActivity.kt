@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.junkfood.seal.util.AUTO_SUBTITLE
 import com.junkfood.seal.util.AUTO_TRANSLATED_SUBTITLES
+import com.junkfood.seal.util.DownloadUtil
+import com.junkfood.seal.util.OUTPUT_TEMPLATE
 import com.junkfood.seal.util.CONVERT_SRT
 import com.junkfood.seal.util.CONVERT_SUBTITLE
 import com.junkfood.seal.util.EMBED_SUBTITLE
@@ -192,6 +194,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
             item = item,
             onDismiss = { previewItem = null },
             onDownload = { previewItem = null; onPick(item) },
+            onSubsOnly = { fetchSubtitlesOnly(item.url, scope) },
         )
     }
     var optionsKey by remember { mutableStateOf(0) }
@@ -280,6 +283,12 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
             ) { Text(if (linkRegex.containsMatchIn(query)) "받기" else "찾기") }
         }
 
+        linkRegex.find(query)?.let { m ->
+            OutlinedButton(
+                onClick = { fetchSubtitlesOnly(m.value, scope) },
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp),
+            ) { Text("이 링크의 자막만 받기 (이미 받은 영상에 붙이기)") }
+        }
         key(optionsKey) { QuickOptions() }
 
         if (loading) {
@@ -677,7 +686,7 @@ private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (
 /** 결과를 누르면 받기 전에 영상을 먼저 보여 주는 창 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: () -> Unit) {
+private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: () -> Unit, onSubsOnly: () -> Unit) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     val close = {
         webView?.apply { loadUrl("about:blank"); destroy() }
@@ -702,6 +711,7 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                     )
+                    TextButton(onClick = onSubsOnly) { Text("자막만") }
                     Button(onClick = { webView?.apply { loadUrl("about:blank") }; onDownload() }) {
                         Text("이 영상 받기")
                     }
@@ -737,5 +747,58 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
                 )
             }
         }
+    }
+}
+
+
+/**
+ * 영상은 받지 않고 자막만 받는다. 이미 받은 영상과 같은 이름·같은 폴더에 저장되므로
+ * VLC·MX 플레이어 등에서 영상을 열면 자막이 자동으로 붙는다.
+ */
+private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineScope) {
+    val ctx = App.context
+    android.widget.Toast.makeText(ctx, "자막을 받는 중이에요…", android.widget.Toast.LENGTH_SHORT).show()
+    scope.launch {
+        val started = System.currentTimeMillis()
+        val msg = withContext(Dispatchers.IO) {
+            try {
+                val ydl = YoutubeDL.getInstance()
+                runCatching { ydl.init(ctx) }
+                val langs = SUBTITLE_LANGUAGE.getString().ifBlank { "ko" }
+                val req = YoutubeDLRequest(url).apply {
+                    addOption("--skip-download")
+                    addOption("--no-playlist")
+                    addOption("--write-subs")
+                    addOption("--write-auto-subs")
+                    addOption("--sub-langs", langs)
+                    addOption("--convert-subs", "srt")
+                    addOption("--sleep-subtitles", "3")
+                    if (!AUTO_TRANSLATED_SUBTITLES.getBoolean()) {
+                        addOption("--extractor-args", "youtube:skip=translated_subs")
+                    }
+                    addOption("-P", App.videoDownloadDir)
+                    addOption("-o", OUTPUT_TEMPLATE.getString().ifBlank { DownloadUtil.OUTPUT_TEMPLATE_DEFAULT })
+                    addOption("--print", "after_move:%(id)s")
+                }
+                val out = ydl.execute(req, "subs-${System.currentTimeMillis()}").out
+                val id = out.lines().lastOrNull { it.isNotBlank() }?.trim()
+                // 자막만 받았을 때는 SRT를 남겨야 영상에 붙으므로, TXT 모드여도 SRT는 지우지 않고 TXT만 추가
+                val mode = SubtitleText.OUTPUT_KEY.getInt(SubtitleText.OUTPUT_TXT)
+                if (mode != SubtitleText.OUTPUT_SRT) {
+                    SubtitleText.OUTPUT_KEY.updateInt(SubtitleText.OUTPUT_BOTH)
+                    SubtitleText.processAfterDownload(App.videoDownloadDir, id, null, started)
+                    SubtitleText.OUTPUT_KEY.updateInt(mode)
+                }
+                val got = java.io.File(App.videoDownloadDir).listFiles()
+                    ?.count { it.extension.equals("srt", true) && it.lastModified() >= started - 5_000 } ?: 0
+                if (got > 0) "자막 ${got}개를 받았어요. 영상과 같은 폴더에 있어요"
+                else "이 언어의 자막이 없어요. ⚙ 설정에서 '번역 자막도 받기'를 켜 보세요"
+            } catch (t: Throwable) {
+                val line = t.message?.lineSequence()?.lastOrNull { it.contains("ERROR") } ?: t.message ?: ""
+                if (line.contains("429")) "유튜브가 자막 요청을 잠시 막았어요. 한두 시간 뒤에 다시 해 보세요"
+                else "자막을 받지 못했어요: ${line.take(100)}"
+            }
+        }
+        android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
     }
 }
