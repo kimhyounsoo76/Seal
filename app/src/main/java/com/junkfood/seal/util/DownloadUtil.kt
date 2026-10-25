@@ -449,6 +449,9 @@ object DownloadUtil {
                     applyFormatSorter(this, toFormatSorter())
                 }
                 if (downloadSubtitle) {
+                    // 자막 받기가 막혀도(429 등) 영상은 받도록: 자막 오류를 경고로 낮추고, 자막 요청 사이에 쉼
+                    addOption("--ignore-errors")
+                    addOption("--sleep-subtitles", "3")
                     if (autoSubtitle) {
                         addOption("--write-auto-subs")
                         if (!autoTranslatedSubtitles) {
