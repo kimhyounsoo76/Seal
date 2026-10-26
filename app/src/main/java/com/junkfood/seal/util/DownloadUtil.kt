@@ -91,6 +91,7 @@ object DownloadUtil {
         YoutubeDL.runCatching {
             ToastUtil.makeToastSuspend(context.getString(R.string.fetching_playlist_info))
             val request = YoutubeDLRequest(playlistURL)
+            JsRuntime.apply(request)
             with(request) {
                 //            addOption("--compat-options", "no-youtube-unavailable-videos")
                 addOption("--flat-playlist")
@@ -146,6 +147,7 @@ object DownloadUtil {
         with(preferences) {
             val request =
                 YoutubeDLRequest(url).apply {
+                    JsRuntime.apply(this)
                     addOption("-o", BASENAME)
                     if (restrictFilenames) {
                         addOption("--restrict-filenames")
@@ -681,6 +683,7 @@ object DownloadUtil {
                         )
                 }
             val request = YoutubeDLRequest(url)
+            JsRuntime.apply(request)
             val pathBuilder = StringBuilder()
             val outputBuilder = StringBuilder()
 
@@ -896,6 +899,7 @@ object DownloadUtil {
         val request =
             with(preferences) {
                 YoutubeDLRequest(urlList).apply {
+                    JsRuntime.apply(this)
                     commandDirectory.takeIf { it.isNotEmpty() }?.let { addOption("-P", it) }
                     addOption("--newline")
                     if (aria2c) {
@@ -937,6 +941,7 @@ object DownloadUtil {
             ToastUtil.makeToastSuspend(context.getString(R.string.start_execute))
             val request =
                 YoutubeDLRequest(urlList).apply {
+                    JsRuntime.apply(this)
                     commandDirectory.takeIf { it.isNotEmpty() }?.let { addOption("-P", it) }
                     addOption("--newline")
                     if (aria2c) {

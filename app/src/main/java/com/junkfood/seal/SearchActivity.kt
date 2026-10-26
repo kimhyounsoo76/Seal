@@ -41,6 +41,7 @@ import coil.compose.AsyncImage
 import com.junkfood.seal.util.AUTO_SUBTITLE
 import com.junkfood.seal.util.AUTO_TRANSLATED_SUBTITLES
 import com.junkfood.seal.util.DownloadUtil
+import com.junkfood.seal.util.JsRuntime
 import com.junkfood.seal.util.OUTPUT_TEMPLATE
 import com.junkfood.seal.util.CONVERT_SRT
 import com.junkfood.seal.util.CONVERT_SUBTITLE
@@ -136,6 +137,7 @@ private suspend fun searchYoutube(query: String): List<SearchItem> = withContext
         try {
             runCatching { ydl.init(App.context) }
             val req = YoutubeDLRequest("ytsearch25:$query")
+            JsRuntime.apply(req)
             req.addOption("--flat-playlist")
             req.addOption("--dump-single-json")
             req.addOption("--socket-timeout", "10")
@@ -766,6 +768,7 @@ private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineS
                 runCatching { ydl.init(ctx) }
                 val langs = SUBTITLE_LANGUAGE.getString().ifBlank { "ko" }
                 val req = YoutubeDLRequest(url).apply {
+                    JsRuntime.apply(this)
                     addOption("--skip-download")
                     addOption("--no-playlist")
                     addOption("--write-subs")
