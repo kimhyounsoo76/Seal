@@ -59,7 +59,11 @@ jobs:
           STAGE="copy"
           mkdir -p app/src/main/jniLibs/arm64-v8a
           QJS=$(find /tmp/qjs/build -type f \( -name qjs -o -name 'qjs-*' \) ! -name '*.o' ! -name '*.a' ! -name '*.cmake' -perm -u+x | head -1 || true)
-          [ -z "$QJS" ] && echo "::error::찾은 파일: $(find /tmp/qjs/build -maxdepth 2 -type f -perm -u+x | head -10 | tr '\n' ' ')"
+          if [ -z "$QJS" ]; then
+            echo "::error::큰 파일: $(find /tmp/qjs/build -type f -size +200k | head -12 | tr '\n' ' ')"
+            echo "::error::빌드 끝부분: $(tail -5 /tmp/qjs-build.log | tr '\n' ' ' | cut -c1-600)"
+            echo "::error::설정 옵션: $(grep -E '^(option|xoption)\(' /tmp/qjs/CMakeLists.txt | tr '\n' ' ' | cut -c1-900)"
+          fi
           cp "$QJS" app/src/main/jniLibs/arm64-v8a/libqjs.so
           echo "::notice::$(file app/src/main/jniLibs/arm64-v8a/libqjs.so) $(stat -c%s app/src/main/jniLibs/arm64-v8a/libqjs.so) bytes"
 
