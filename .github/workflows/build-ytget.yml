@@ -3,6 +3,9 @@ name: 영상 찾아받기 APK 만들기
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -80,3 +83,17 @@ jobs:
           path: app/build/outputs/apk/**/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: 바로 받기 주소에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          APK=$(ls app/build/outputs/apk/**/*arm64-v8a*.apk 2>/dev/null | head -1 || true)
+          [ -z "$APK" ] && APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk' | head -1)
+          cp "$APK" YeongsangChajaBatgi.apk
+          gh release delete app-latest -y --cleanup-tag -R "$GITHUB_REPOSITORY" || true
+          gh release create app-latest YeongsangChajaBatgi.apk -R "$GITHUB_REPOSITORY" \
+            --title "영상 찾아받기 최신판" \
+            --notes "빌드 시각: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') (한국 시간)" --target "$GITHUB_SHA"
+          echo "::notice::바로 받기: https://github.com/$GITHUB_REPOSITORY/releases/download/app-latest/YeongsangChajaBatgi.apk"
