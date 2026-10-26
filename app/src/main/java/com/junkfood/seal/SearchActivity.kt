@@ -592,6 +592,37 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
                 modifier = Modifier.padding(top = 2.dp),
             )
 
+            SectionTitle("앱 업데이트")
+            var appMsg by remember { mutableStateOf("") }
+            var appBusy by remember { mutableStateOf(false) }
+            Text(
+                "브라우저를 거치지 않고 앱 안에서 최신판을 받아 바로 설치해요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                FilledTonalButton(
+                    enabled = !appBusy,
+                    onClick = {
+                        appBusy = true
+                        appMsg = "받는 중…"
+                        scope.launch {
+                            val ok = downloadLatestApp { pct -> appMsg = "받는 중… $pct%" }
+                            appBusy = false
+                            if (ok) {
+                                appMsg = "설치 화면을 열었어요"
+                                UpdateUtil.installLatestApk()
+                            } else {
+                                appMsg = "받지 못했어요. 인터넷을 확인하세요"
+                            }
+                        }
+                    },
+                ) { Text("새 버전 받기") }
+                if (appMsg.isNotEmpty()) {
+                    Text(appMsg, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
+                }
+            }
+
             SectionTitle("다운로드 엔진")
             Text(
                 if (engineVersion.isBlank()) "버전 확인 전" else "지금 버전: $engineVersion",
@@ -804,4 +835,60 @@ private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineS
         }
         android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
     }
+}
+
+
+private const val LATEST_APK_URL =
+    "https://github.com/kimhyounsoo76/Seal/releases/download/app-latest/YeongsangChajaBatgi.apk"
+
+/** 고정 주소의 최신 APK를 앱 전용 폴더(latest.apk)로 받는다. 성공하면 true */
+private suspend fun downloadLatestApp(onProgress: (Int) -> Unit): Boolean = withContext(Dispatchers.IO) {
+    runCatching {
+        val ctx = App.context
+        val dest = java.io.File(ctx.getExternalFilesDir("apk"), "latest.apk")
+        dest.parentFile?.mkdirs()
+        val tmp = java.io.File(dest.parentFile, "latest.apk.part")
+        var url = java.net.URL(LATEST_APK_URL)
+        var conn: java.net.HttpURLConnection
+        var hops = 0
+        while (true) {
+            conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 15000
+                readTimeout = 30000
+            }
+            val code = conn.responseCode
+            if (code in 300..399 && hops < 5) {
+                url = java.net.URL(url, conn.getHeaderField("Location"))
+                conn.disconnect(); hops++; continue
+            }
+            if (code != 200) error("HTTP $code")
+            break
+        }
+        val total = conn.contentLengthLong
+        var done = 0L
+        var lastPct = -1
+        conn.inputStream.use { input ->
+            tmp.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    done += n
+                    if (total > 0) {
+                        val pct = (done * 100 / total).toInt()
+                        if (pct != lastPct) {
+                            lastPct = pct
+                            withContext(Dispatchers.Main) { onProgress(pct) }
+                        }
+                    }
+                }
+            }
+        }
+        conn.disconnect()
+        if (total > 0 && done != total) error("incomplete")
+        dest.delete()
+        tmp.renameTo(dest)
+    }.getOrDefault(false)
 }
