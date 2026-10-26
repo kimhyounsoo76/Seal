@@ -92,8 +92,11 @@ jobs:
           APK=$(ls app/build/outputs/apk/**/*arm64-v8a*.apk 2>/dev/null | head -1 || true)
           [ -z "$APK" ] && APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk' | head -1)
           cp "$APK" YeongsangChajaBatgi.apk
+          STAMP=$(TZ=Asia/Seoul date '+%m%d-%H%M')
+          cp "$APK" "YeongsangChajaBatgi-$STAMP.apk"
           gh release delete app-latest -y --cleanup-tag -R "$GITHUB_REPOSITORY" || true
-          gh release create app-latest YeongsangChajaBatgi.apk -R "$GITHUB_REPOSITORY" \
+          gh release create app-latest YeongsangChajaBatgi.apk "YeongsangChajaBatgi-$STAMP.apk" -R "$GITHUB_REPOSITORY" \
             --title "영상 찾아받기 최신판" \
             --notes "빌드 시각: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') (한국 시간)" --target "$GITHUB_SHA"
           echo "::notice::바로 받기: https://github.com/$GITHUB_REPOSITORY/releases/download/app-latest/YeongsangChajaBatgi.apk"
+          echo "::notice::이번 빌드 전용: https://github.com/$GITHUB_REPOSITORY/releases/download/app-latest/YeongsangChajaBatgi-$STAMP.apk"
