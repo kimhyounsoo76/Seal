@@ -98,6 +98,8 @@ class SearchActivity : ComponentActivity() {
             val dark = isSystemInDarkTheme()
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    // 앱을 열 때 받기 엔진(yt-dlp)을 자동으로 최신 버전으로 올린다
+                    com.junkfood.seal.ui.page.YtdlpUpdater()
                     SearchScreen(
                         onPick = { item -> openDownload(item.url) },
                         onUrl = { url -> openDownload(url) },
