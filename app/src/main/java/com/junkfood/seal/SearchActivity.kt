@@ -135,14 +135,14 @@ private fun fmtDuration(sec: Double): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, r) else "%d:%02d".format(m, r)
 }
 
-private suspend fun searchYoutube(query: String): List<SearchItem> = withContext(Dispatchers.IO) {
+private suspend fun searchYoutube(query: String, count: Int = 25): List<SearchItem> = withContext(Dispatchers.IO) {
     val ydl = YoutubeDL.getInstance()
     // 앱 시작 직후엔 엔진 준비가 덜 됐을 수 있어 몇 번 기다림
     var lastError: Throwable? = null
     repeat(5) {
         try {
             runCatching { ydl.init(App.context) }
-            val req = YoutubeDLRequest("ytsearch25:$query")
+            val req = YoutubeDLRequest("ytsearch$count:$query")
             JsRuntime.apply(req)
             req.addOption("--flat-playlist")
             req.addOption("--dump-single-json")
@@ -184,7 +184,7 @@ private suspend fun searchYoutube(query: String): List<SearchItem> = withContext
     throw lastError ?: IllegalStateException("검색 실패")
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, Boolean) -> Unit, onOpenSeal: () -> Unit) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -192,10 +192,14 @@ private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, 
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("낱말을 넣고 찾기를 누르세요. 결과를 누르면 재생해 보고 받을 수 있어요.\n영상 주소(링크)를 붙여넣으면 영상·음원·자막을 골라 받을 수 있어요.") }
+    var message by remember { mutableStateOf("낱말을 넣고 찾기를 누르세요. 결과를 누르면 재생해 볼 수 있어요.\n영상 주소(링크)를 붙여넣거나 유튜브 앱에서 공유해도 받을 수 있어요.") }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     var showSettings by remember { mutableStateOf(false) }
+    var recent by remember { mutableStateOf(RecentSearches.load()) }
+    var lastQuery by remember { mutableStateOf("") }
+    var count by remember { mutableStateOf(25) }
+    var loadingMore by remember { mutableStateOf(false) }
     var previewItem by remember { mutableStateOf<SearchItem?>(null) }
     previewItem?.let { item ->
         PreviewDialog(
@@ -225,14 +229,17 @@ private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, 
         focus.clearFocus()
         loading = true
         message = ""
+        recent = RecentSearches.add(q)
+        lastQuery = q
+        count = 25
         scope.launch {
             try {
-                val r = searchYoutube(q)
+                val r = searchYoutube(q, count)
                 results = r
                 if (r.isEmpty()) message = "검색 결과가 없어요. 다른 낱말로 찾아보세요."
             } catch (t: Throwable) {
                 results = emptyList()
-                message = "검색하지 못했어요. 인터넷 연결을 확인하고 다시 해 보세요.\n(${t.message?.lineSequence()?.firstOrNull()?.take(120) ?: ""})"
+                message = "검색하지 못했어요. " + friendlyError(t.message)
             } finally {
                 loading = false
             }
@@ -274,9 +281,15 @@ private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, 
                 singleLine = true,
                 placeholder = { Text("찾을 낱말 또는 영상 주소") },
                 trailingIcon = {
-                    TextButton(onClick = {
-                        clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { query = it }
-                    }) { Text("붙여넣기") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isNotEmpty()) {
+                            TextButton(onClick = { query = "" }) { Text("✕") }
+                        } else {
+                            TextButton(onClick = {
+                                clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { query = it }
+                            }) { Text("붙여넣기") }
+                        }
+                    }
                 },
                 shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -301,7 +314,38 @@ private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, 
                 modifier = Modifier.widthIn(max = 900.dp).padding(horizontal = 16.dp).padding(bottom = 6.dp),
             )
         }
-        key(optionsKey) { QuickOptions() }
+        // 받는 중 (진행 막대·취소·다 받으면 열기)
+        DownloadingPanel(
+            modifier = Modifier.widthIn(max = 900.dp).padding(horizontal = 16.dp).padding(bottom = 6.dp),
+        )
+
+        // 최근 검색어 (결과가 없을 때만)
+        if (results.isEmpty() && !loading && recent.isNotEmpty() && link == null) {
+            Text(
+                "최근 검색어",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 20.dp, top = 4.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.widthIn(max = 900.dp).padding(horizontal = 16.dp),
+            ) {
+                recent.forEach { r ->
+                    InputChip(
+                        selected = false,
+                        onClick = { query = r; doSearch() },
+                        label = { Text(r) },
+                        trailingIcon = {
+                            Text(
+                                "✕",
+                                modifier = Modifier.clickable { recent = RecentSearches.remove(r) }.padding(4.dp),
+                            )
+                        },
+                    )
+                }
+            }
+        }
 
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
@@ -322,17 +366,46 @@ private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, 
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().weight(1f),
         ) {
             items(results, key = { it.id }) { item ->
-                ResultCard(item, onPreview = { previewItem = item }, onDownload = { onPick(item, false) })
+                ResultCard(item, onPreview = { previewItem = item }, onDownload = { audio -> onPick(item, audio) })
+            }
+            if (results.size >= count - 8 && lastQuery.isNotEmpty()) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    OutlinedButton(
+                        enabled = !loadingMore,
+                        onClick = {
+                            loadingMore = true
+                            scope.launch {
+                                try {
+                                    val next = count + 25
+                                    val r = searchYoutube(lastQuery, next)
+                                    count = next
+                                    results = r
+                                } catch (t: Throwable) {
+                                    message = "더 불러오지 못했어요. " + friendlyError(t.message)
+                                } finally {
+                                    loadingMore = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) { Text(if (loadingMore) "불러오는 중…" else "결과 더 보기") }
+                }
             }
         }
+        Text(
+            "영상 찾아받기 v$YTGET_VERSION · 제작 kingkongssam",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp),
+        )
     }
 }
 
 @Composable
-private fun ResultCard(item: SearchItem, onPreview: () -> Unit, onDownload: () -> Unit) {
+private fun ResultCard(item: SearchItem, onPreview: () -> Unit, onDownload: (Boolean) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,8 +457,17 @@ private fun ResultCard(item: SearchItem, onPreview: () -> Unit, onDownload: () -
                     )
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onDownload) { Text("받기") }
+            Spacer(Modifier.width(6.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilledTonalButton(
+                    onClick = { onDownload(false) },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) { Text("🎬 영상") }
+                OutlinedButton(
+                    onClick = { onDownload(true) },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) { Text("🎵 음원") }
+            }
         }
     }
 }
@@ -821,10 +903,10 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
  * 영상은 받지 않고 자막만 받는다. 이미 받은 영상과 같은 이름·같은 폴더에 저장되므로
  * VLC·MX 플레이어 등에서 영상을 열면 자막이 자동으로 붙는다.
  */
-private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineScope) {
+internal fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineScope) {
     val ctx = App.context
     android.widget.Toast.makeText(ctx, "자막·가사를 받는 중이에요…", android.widget.Toast.LENGTH_SHORT).show()
-    scope.launch {
+    scope.launch(Dispatchers.Main) {
         val started = System.currentTimeMillis()
         val msg = withContext(Dispatchers.IO) {
             try {
@@ -863,7 +945,7 @@ private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineS
             } catch (t: Throwable) {
                 val line = t.message?.lineSequence()?.lastOrNull { it.contains("ERROR") } ?: t.message ?: ""
                 if (line.contains("429")) "유튜브가 자막 요청을 잠시 막았어요. 한두 시간 뒤에 다시 해 보세요"
-                else "자막을 받지 못했어요: ${line.take(100)}"
+                else friendlyError(t.message)
             }
         }
         android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()

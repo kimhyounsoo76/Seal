@@ -101,6 +101,39 @@ class QuickDownloadActivity : ComponentActivity() {
             runBlocking { setLanguage(PreferenceUtil.getLocaleFromPreference()) }
         }
 
+        // 유튜브 앱 등에서 공유로 들어온 경우: 영상 / 음원 / 자막·가사 중 고르는 창을 먼저 띄운다
+        if (intent.getStringExtra(EXTRA_MODE) == null) {
+            val url = sharedUrlCached
+            fun relaunch(m: String) {
+                startActivity(
+                    Intent(this, QuickDownloadActivity::class.java).apply {
+                        action = Intent.ACTION_SEND
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, url)
+                        putExtra(EXTRA_MODE, m)
+                    }
+                )
+                finish()
+            }
+            setContent {
+                SettingsProvider(calculateWindowSizeClass(this).widthSizeClass) {
+                    SealTheme(darkTheme = LocalDarkTheme.current.isDarkTheme()) {
+                        ShareChoiceDialog(
+                            url = url,
+                            onVideo = { relaunch(MODE_VIDEO) },
+                            onAudio = { relaunch(MODE_AUDIO) },
+                            onSubs = {
+                                fetchSubtitlesOnly(url, App.applicationScope)
+                                finish()
+                            },
+                            onDismiss = { finish() },
+                        )
+                    }
+                }
+            }
+            return
+        }
+
         val viewModel: DownloadDialogViewModel = getViewModel()
 
         // 검색 화면에서 '영상 받기'/'음원만 받기'를 눌러 온 경우: 받기 전 설정 창 없이 바로 받는다
@@ -113,18 +146,17 @@ class QuickDownloadActivity : ComponentActivity() {
                 viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
                 viewModel.postAction(Action.FetchFormats(sharedUrlCached, audio, prefs))
             } else {
+                SessionTasks.add(com.junkfood.seal.download.Task(url = sharedUrlCached, preferences = prefs).id)
                 viewModel.postAction(Action.DownloadWithPreset(listOf(sharedUrlCached), prefs))
                 android.widget.Toast.makeText(
                     this,
-                    if (audio) "음원 받기를 시작했어요. '받은 목록'에서 볼 수 있어요"
-                    else "영상 받기를 시작했어요. '받은 목록'에서 볼 수 있어요",
+                    if (audio) "음원 받기를 시작했어요. 앱 첫 화면에서 진행 상황을 볼 수 있어요"
+                    else "영상 받기를 시작했어요. 앱 첫 화면에서 진행 상황을 볼 수 있어요",
                     android.widget.Toast.LENGTH_LONG,
                 ).show()
                 finish()
                 return
             }
-        } else {
-            viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
         }
 
         setContent {
