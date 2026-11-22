@@ -101,8 +101,8 @@ class SearchActivity : ComponentActivity() {
                     // 앱을 열 때 받기 엔진(yt-dlp)을 자동으로 최신 버전으로 올린다
                     com.junkfood.seal.ui.page.YtdlpUpdater()
                     SearchScreen(
-                        onPick = { item -> openDownload(item.url) },
-                        onUrl = { url -> openDownload(url) },
+                        onPick = { item, audio -> openDownload(item.url, audio) },
+                        onUrl = { url, audio -> openDownload(url, audio) },
                         onOpenSeal = {
                             startActivity(Intent(this, MainActivity::class.java))
                         },
@@ -112,11 +112,15 @@ class SearchActivity : ComponentActivity() {
         }
     }
 
-    private fun openDownload(url: String) {
+    private fun openDownload(url: String, audio: Boolean) {
         val i = Intent(this, QuickDownloadActivity::class.java).apply {
             action = Intent.ACTION_SEND
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, url)
+            putExtra(
+                QuickDownloadActivity.EXTRA_MODE,
+                if (audio) QuickDownloadActivity.MODE_AUDIO else QuickDownloadActivity.MODE_VIDEO,
+            )
         }
         startActivity(i)
     }
@@ -182,13 +186,13 @@ private suspend fun searchYoutube(query: String): List<SearchItem> = withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, onOpenSeal: () -> Unit) {
+private fun SearchScreen(onPick: (SearchItem, Boolean) -> Unit, onUrl: (String, Boolean) -> Unit, onOpenSeal: () -> Unit) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val linkRegex = remember { Regex("""https?://\S+""") }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("낱말을 넣고 찾기를 누르세요. 결과를 누르면 미리 볼 수 있어요.\n영상 주소(링크)를 붙여넣고 받기를 누르면 바로 받아요.") }
+    var message by remember { mutableStateOf("낱말을 넣고 찾기를 누르세요. 결과를 누르면 재생해 보고 받을 수 있어요.\n영상 주소(링크)를 붙여넣으면 영상·음원·자막을 골라 받을 수 있어요.") }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     var showSettings by remember { mutableStateOf(false) }
@@ -197,7 +201,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
         PreviewDialog(
             item = item,
             onDismiss = { previewItem = null },
-            onDownload = { previewItem = null; onPick(item) },
+            onDownload = { audio -> previewItem = null; onPick(item, audio) },
             onSubsOnly = { fetchSubtitlesOnly(item.url, scope) },
         )
     }
@@ -215,7 +219,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
         // 주소(링크)를 넣었으면 검색하지 않고 바로 받기 창을 연다 (유튜브·인스타 릴스 등)
         linkRegex.find(q)?.let { m ->
             focus.clearFocus()
-            onUrl(m.value.trimEnd(')', ']', '>', '"', '\'', ',', '.'))
+            onUrl(cleanLink(m.value), false)
             return
         }
         focus.clearFocus()
@@ -284,14 +288,18 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
                 enabled = !loading,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.height(56.dp),
-            ) { Text(if (linkRegex.containsMatchIn(query)) "받기" else "찾기") }
+            ) { Text(if (linkRegex.containsMatchIn(query)) "영상 받기" else "찾기") }
         }
 
-        linkRegex.find(query)?.let { m ->
-            OutlinedButton(
-                onClick = { fetchSubtitlesOnly(m.value, scope) },
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp),
-            ) { Text("이 링크의 자막만 받기 (이미 받은 영상에 붙이기)") }
+        val link = linkRegex.find(query)?.value?.let { cleanLink(it) }
+        if (link != null) {
+            // 주소를 넣었을 때: 영상 / 음원만 / 자막·가사 중 골라 받기
+            DownloadChoiceRow(
+                onVideo = { focus.clearFocus(); onUrl(link, false) },
+                onAudio = { focus.clearFocus(); onUrl(link, true) },
+                onSubs = { focus.clearFocus(); fetchSubtitlesOnly(link, scope) },
+                modifier = Modifier.widthIn(max = 900.dp).padding(horizontal = 16.dp).padding(bottom = 6.dp),
+            )
         }
         key(optionsKey) { QuickOptions() }
 
@@ -317,7 +325,7 @@ private fun SearchScreen(onPick: (SearchItem) -> Unit, onUrl: (String) -> Unit, 
             modifier = Modifier.fillMaxSize(),
         ) {
             items(results, key = { it.id }) { item ->
-                ResultCard(item, onPreview = { previewItem = item }, onDownload = { onPick(item) })
+                ResultCard(item, onPreview = { previewItem = item }, onDownload = { onPick(item, false) })
             }
         }
     }
@@ -408,7 +416,6 @@ private fun setSubtitle(on: Boolean) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickOptions() {
-    var audioOnly by remember { mutableStateOf(isAudioMode()) }
     var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
 
     Row(
@@ -421,14 +428,9 @@ private fun QuickOptions() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FilterChip(
-            selected = audioOnly,
-            onClick = { audioOnly = !audioOnly; setAudioMode(audioOnly) },
-            label = { Text(if (audioOnly) "🎵 소리만 받기" else "🎬 영상으로 받기") },
-        )
-        FilterChip(
             selected = subtitle,
             onClick = { subtitle = !subtitle; setSubtitle(subtitle) },
-            label = { Text(if (subtitle) "💬 자막도 받기" else "💬 자막 안 받기") },
+            label = { Text(if (subtitle) "💬 영상 받을 때 자막도 함께" else "💬 영상만 (자막 따로 안 받음)") },
         )
     }
 }
@@ -440,7 +442,6 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
-    var audioOnly by remember { mutableStateOf(isAudioMode()) }
     var quality by remember { mutableStateOf(VIDEO_QUALITY.getInt()) }
     var mp4 by remember { mutableStateOf(VIDEO_FORMAT.getInt() == FORMAT_COMPATIBILITY) }
     var mp3 by remember { mutableStateOf(AUDIO_CONVERT.getBoolean() && AUDIO_CONVERSION_FORMAT.getInt() == CONVERT_MP3) }
@@ -467,13 +468,6 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-            )
-
-            SectionTitle("받는 방법")
-            ChoiceRow(
-                options = listOf("🎬 영상", "🎵 소리만"),
-                selected = if (audioOnly) 1 else 0,
-                onSelect = { audioOnly = it == 1; setAudioMode(audioOnly) },
             )
 
             SectionTitle("영상 화질")
@@ -718,10 +712,45 @@ private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (
 }
 
 
+private fun cleanLink(raw: String) = raw.trimEnd(')', ']', '>', '"', '\'', ',', '.')
+
+/** 영상 받기 / 음원만 받기 / 자막·가사 받기 세 버튼 (미리 보기 창과 주소 입력에 같이 씀) */
+@Composable
+private fun DownloadChoiceRow(
+    onVideo: () -> Unit,
+    onAudio: () -> Unit,
+    onSubs: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            onClick = onVideo,
+            modifier = Modifier.weight(1f).height(52.dp),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp),
+        ) { Text("🎬 영상 받기", maxLines = 1) }
+        FilledTonalButton(
+            onClick = onAudio,
+            modifier = Modifier.weight(1f).height(52.dp),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp),
+        ) { Text("🎵 음원만", maxLines = 1) }
+        OutlinedButton(
+            onClick = onSubs,
+            modifier = Modifier.weight(1f).height(52.dp),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp),
+        ) { Text("💬 자막·가사", maxLines = 1) }
+    }
+}
+
 /** 결과를 누르면 받기 전에 영상을 먼저 보여 주는 창 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: () -> Unit, onSubsOnly: () -> Unit) {
+private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (Boolean) -> Unit, onSubsOnly: () -> Unit) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     val close = {
         webView?.apply { loadUrl("about:blank"); destroy() }
@@ -746,10 +775,6 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                     )
-                    TextButton(onClick = onSubsOnly) { Text("자막만") }
-                    Button(onClick = { webView?.apply { loadUrl("about:blank") }; onDownload() }) {
-                        Text("이 영상 받기")
-                    }
                 }
                 // 휴대폰 세로: 화면 폭에 맞춘 16:9 / 태블릿·가로: 남은 공간을 채움
                 AndroidView(
@@ -780,6 +805,12 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
                         }
                     },
                 )
+                DownloadChoiceRow(
+                    onVideo = { webView?.apply { loadUrl("about:blank") }; onDownload(false) },
+                    onAudio = { webView?.apply { loadUrl("about:blank") }; onDownload(true) },
+                    onSubs = onSubsOnly,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
             }
         }
     }
@@ -792,7 +823,7 @@ private fun PreviewDialog(item: SearchItem, onDismiss: () -> Unit, onDownload: (
  */
 private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineScope) {
     val ctx = App.context
-    android.widget.Toast.makeText(ctx, "자막을 받는 중이에요…", android.widget.Toast.LENGTH_SHORT).show()
+    android.widget.Toast.makeText(ctx, "자막·가사를 받는 중이에요…", android.widget.Toast.LENGTH_SHORT).show()
     scope.launch {
         val started = System.currentTimeMillis()
         val msg = withContext(Dispatchers.IO) {
@@ -827,8 +858,8 @@ private fun fetchSubtitlesOnly(url: String, scope: kotlinx.coroutines.CoroutineS
                 }
                 val got = java.io.File(App.videoDownloadDir).listFiles()
                     ?.count { it.extension.equals("srt", true) && it.lastModified() >= started - 5_000 } ?: 0
-                if (got > 0) "자막 ${got}개를 받았어요. 영상과 같은 폴더에 있어요"
-                else "이 언어의 자막이 없어요. ⚙ 설정에서 '번역 자막도 받기'를 켜 보세요"
+                if (got > 0) "자막·가사 ${got}개를 받았어요. 받은 영상과 같은 폴더에 있어요"
+                else "이 영상에는 이 언어의 자막·가사가 없어요. ⚙ 설정에서 자막 언어나 '번역 자막도 받기'를 바꿔 보세요"
             } catch (t: Throwable) {
                 val line = t.message?.lineSequence()?.lastOrNull { it.contains("ERROR") } ?: t.message ?: ""
                 if (line.contains("429")) "유튜브가 자막 요청을 잠시 막았어요. 한두 시간 뒤에 다시 해 보세요"

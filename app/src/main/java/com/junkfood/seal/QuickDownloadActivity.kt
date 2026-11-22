@@ -39,6 +39,12 @@ import org.koin.androidx.viewmodel.ext.android.getViewModel
 private const val TAG = "QuickDownloadActivity"
 
 class QuickDownloadActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_MODE = "ytget_mode"
+        const val MODE_VIDEO = "video"
+        const val MODE_AUDIO = "audio"
+    }
+
     private var sharedUrlCached: String = ""
 
     private fun Intent.getSharedURL(): String? {
@@ -93,7 +99,30 @@ class QuickDownloadActivity : ComponentActivity() {
         }
 
         val viewModel: DownloadDialogViewModel = getViewModel()
-        viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
+
+        // 검색 화면에서 '영상 받기'/'음원만 받기'를 눌러 온 경우: 받기 전 설정 창 없이 바로 받는다
+        val mode = intent.getStringExtra(EXTRA_MODE)
+        if (mode != null) {
+            val audio = mode == MODE_AUDIO
+            val prefs = DownloadUtil.DownloadPreferences.createFromPreferences().copy(extractAudio = audio)
+            if (com.junkfood.seal.util.FORMAT_SELECTION.getBoolean()) {
+                // '받기 전에 형식 직접 고르기'를 켠 경우에만 화질 목록을 띄운다
+                viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
+                viewModel.postAction(Action.FetchFormats(sharedUrlCached, audio, prefs))
+            } else {
+                viewModel.postAction(Action.DownloadWithPreset(listOf(sharedUrlCached), prefs))
+                android.widget.Toast.makeText(
+                    this,
+                    if (audio) "음원 받기를 시작했어요. '받은 목록'에서 볼 수 있어요"
+                    else "영상 받기를 시작했어요. '받은 목록'에서 볼 수 있어요",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                finish()
+                return
+            }
+        } else {
+            viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
+        }
 
         setContent {
             SettingsProvider(calculateWindowSizeClass(this).widthSizeClass) {
