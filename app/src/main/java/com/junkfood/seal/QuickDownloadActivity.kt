@@ -44,6 +44,8 @@ class QuickDownloadActivity : ComponentActivity() {
         const val EXTRA_MODE = "ytget_mode"
         const val MODE_VIDEO = "video"
         const val MODE_AUDIO = "audio"
+        // 검색 화면 전용: 받기 전에 화질 목록을 띄울지 (처음엔 꺼짐)
+        const val ASK_FORMAT_KEY = "ytget_ask_format"
     }
 
     private var sharedUrlCached: String = ""
@@ -106,7 +108,7 @@ class QuickDownloadActivity : ComponentActivity() {
         if (mode != null) {
             val audio = mode == MODE_AUDIO
             val prefs = DownloadUtil.DownloadPreferences.createFromPreferences().copy(extractAudio = audio)
-            if (com.junkfood.seal.util.FORMAT_SELECTION.getBoolean()) {
+            if (com.tencent.mmkv.MMKV.defaultMMKV().decodeBool(ASK_FORMAT_KEY, false)) {
                 // '받기 전에 형식 직접 고르기'를 켠 경우에만 화질 목록을 띄운다
                 viewModel.postAction(Action.ShowSheet(listOf(sharedUrlCached)))
                 viewModel.postAction(Action.FetchFormats(sharedUrlCached, audio, prefs))

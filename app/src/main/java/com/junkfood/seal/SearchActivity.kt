@@ -447,7 +447,7 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
     var mp3 by remember { mutableStateOf(AUDIO_CONVERT.getBoolean() && AUDIO_CONVERSION_FORMAT.getInt() == CONVERT_MP3) }
     var subtitle by remember { mutableStateOf(SUBTITLE.getBoolean()) }
     var subLang by remember { mutableStateOf(SUBTITLE_LANGUAGE.getString().ifBlank { "ko" }) }
-    var askFormat by remember { mutableStateOf(FORMAT_SELECTION.getBoolean()) }
+    var askFormat by remember { mutableStateOf(com.tencent.mmkv.MMKV.defaultMMKV().decodeBool(QuickDownloadActivity.ASK_FORMAT_KEY, false)) }
     var engineVersion by remember { mutableStateOf(YT_DLP_VERSION.getString()) }
     var engineMsg by remember { mutableStateOf("") }
     var updating by remember { mutableStateOf(false) }
@@ -576,7 +576,7 @@ private fun SettingsSheet(onDismiss: () -> Unit, onOpenAll: () -> Unit) {
                 title = "받기 전에 형식 직접 고르기",
                 desc = "켜면 화질·파일 종류 목록이 매번 떠요",
                 checked = askFormat,
-                onChange = { askFormat = it; FORMAT_SELECTION.updateBoolean(it) },
+                onChange = { askFormat = it; com.tencent.mmkv.MMKV.defaultMMKV().encode(QuickDownloadActivity.ASK_FORMAT_KEY, it) },
             )
 
             SectionTitle("저장 위치")
